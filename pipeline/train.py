@@ -76,18 +76,26 @@ def loss_of(logprobs_row, example, device):
     return -(target * label_logprobs).sum(), label_logprobs
 
 
-def micro_batches(examples, indices, size):
-    """Indices grouped into micro-batches of similar length."""
-    ordered = sorted(indices, key=lambda i: len(examples[i]["ids"]))
-    return [ordered[i : i + size] for i in range(0, len(ordered), size)]
+def micro_batches(examples, indices, size, max_tokens):
+    """Indices grouped into micro-batches of similar length: at most `size` rows and `max_tokens` padded tokens."""
+    groups, current = [], []
+    for i in sorted(indices, key=lambda i: len(examples[i]["ids"])):
+        width = len(examples[i]["ids"])
+        if current and (len(current) >= size or (len(current) + 1) * width > max_tokens):
+            groups.append(current)
+            current = []
+        current.append(i)
+    if current:
+        groups.append(current)
+    return groups
 
 
 @torch.no_grad()
-def evaluate(model, examples, pad_id, device, micro, limit=None):
+def evaluate(model, examples, pad_id, device, micro, max_tokens, limit=None):
     model.eval()
     rows = examples if limit is None else examples[:limit]
     per = defaultdict(lambda: {"n": 0, "loss": 0.0, "agree": 0, "mass": 0.0, "brier": 0.0})
-    for group in micro_batches(rows, range(len(rows)), micro):
+    for group in micro_batches(rows, range(len(rows)), micro, max_tokens):
         batch = [rows[i] for i in group]
         logprobs = batch_logprobs(model, batch, pad_id, device)
         for row, example in enumerate(batch):
@@ -140,7 +148,8 @@ def main():
     parser.add_argument("--epochs", type=float, default=1)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--accum", type=int, default=32, help="examples per optimizer step")
-    parser.add_argument("--micro", type=int, default=8, help="examples per forward pass")
+    parser.add_argument("--micro", type=int, default=8, help="most examples per forward pass")
+    parser.add_argument("--micro-tokens", type=int, default=8192, help="most padded tokens per forward pass")
     parser.add_argument("--max-len", type=int, default=4096)
     parser.add_argument("--lora-r", type=int, default=32)
     parser.add_argument("--eval-every", type=int, default=150, help="optimizer steps")
@@ -170,7 +179,7 @@ def main():
         print("padded batches disagree with single examples; training one example at a time", flush=True)
 
     log = open(os.path.join(args.out, "log.jsonl"), "a", encoding="utf-8")
-    baseline = evaluate(model, val, pad_id, device, micro, args.eval_limit)
+    baseline = evaluate(model, val, pad_id, device, micro, args.micro_tokens, args.eval_limit)
     print("baseline", json.dumps(baseline["all"]), flush=True)
     log.write(json.dumps({"step": 0, "eval": baseline, "padding_check": drift}) + "\n")
     log.flush()
@@ -199,14 +208,26 @@ def main():
         order.extend(epoch)
     started = time.time()
     running = 0.0
-    for step in range(total_steps):
-        chunk = order[step * args.accum : (step + 1) * args.accum]
-        for group in micro_batches(train, chunk, micro):
+    def accumulate(chunk, groups):
+        total = 0.0
+        for group in groups:
             batch = [train[i] for i in group]
             logprobs = batch_logprobs(model, batch, pad_id, device)
             loss = sum(loss_of(logprobs[row], e, device)[0] for row, e in enumerate(batch))
             (loss / len(chunk)).backward()
-            running += loss.item() / len(chunk)
+            total += loss.item() / len(chunk)
+        return total
+
+    for step in range(total_steps):
+        chunk = order[step * args.accum : (step + 1) * args.accum]
+        try:
+            running += accumulate(chunk, micro_batches(train, chunk, micro, args.micro_tokens))
+        except torch.OutOfMemoryError:
+            # Out of memory part-way: drop this step's gradients and redo it one example at a time.
+            optimizer.zero_grad(set_to_none=True)
+            torch.cuda.empty_cache()
+            print(f"step {step + 1}: out of memory, redone one example at a time", flush=True)
+            running += accumulate(chunk, [[i] for i in chunk])
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         schedule.step()
@@ -221,13 +242,13 @@ def main():
             log.write(json.dumps({"step": step + 1, "train_loss": running / 10}) + "\n")
             running = 0.0
         if (step + 1) % args.eval_every == 0 or step + 1 == total_steps:
-            result = evaluate(model, val, pad_id, device, micro, args.eval_limit)
+            result = evaluate(model, val, pad_id, device, micro, args.micro_tokens, args.eval_limit)
             print("eval", step + 1, json.dumps(result["all"]), flush=True)
             log.write(json.dumps({"step": step + 1, "eval": result}) + "\n")
             log.flush()
             model.save_pretrained(os.path.join(args.out, "adapter"))
 
-    final = evaluate(model, val, pad_id, device, micro)
+    final = evaluate(model, val, pad_id, device, micro, args.micro_tokens)
     print("final", json.dumps(final["all"]), flush=True)
     log.write(json.dumps({"step": total_steps, "final": final}) + "\n")
     log.close()
