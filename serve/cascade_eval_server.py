@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pipeline"))
 from judge_format import from_wire  # noqa: E402
 from label_tf import SYSTEM_PROMPT, extract_json, to_answer, user_message  # noqa: E402
-from spend import record  # noqa: E402
+from spend import BUDGET_USD, record, total  # noqa: E402
 from tf import BASE, api_key  # noqa: E402
 
 # mu's defaults (packages/kyrn-judge/src/policy.ts, cascade.ts): a yes/no answer strictly between 0.2 and 0.8, or a
@@ -53,8 +53,12 @@ def to_wire(answer: dict) -> dict:
     return {"choice": answer["choice"], "probabilities": answer.get("probabilities") or {answer["choice"]: 1.0}}
 
 
+class OverBudget(Exception):
+    pass
+
+
 class Cascade:
-    def __init__(self, cache: Path, model: str, think: bool):
+    def __init__(self, cache: Path, model: str, think: bool, max_usd: float):
         self.answers: dict[str, dict] = {}
         for requests in glob.glob(str(cache / "*.requests.jsonl")):
             responses = {}
@@ -69,16 +73,23 @@ class Cascade:
         self.extra = ({"temperature": 0, "max_tokens": 6000, "reasoning_effort": "high"} if think else
                       {"temperature": 0, "max_tokens": 1500, "chat_template_kwargs": {"enable_thinking": False}})
         self.lock = threading.Lock()
-        self.stats = {"requests": 0, "questions": 0, "escalated": 0, "missing": 0, "escalation_failed": 0}
+        self.max_usd = max_usd
+        self.stats = {"requests": 0, "questions": 0, "escalated": 0, "missing": 0, "escalation_failed": 0,
+                      "spent_usd": 0.0}
 
     def escalate(self, state, questions: dict) -> dict:
+        with self.lock:  # past the cap, refuse loudly rather than keep the student's unsure answers in silence
+            if self.stats["spent_usd"] >= self.max_usd or total() >= BUDGET_USD:
+                raise OverBudget(f"cascade spend cap reached (${self.stats['spent_usd']:.2f} of ${self.max_usd:.2f})")
         body = {"model": self.model, "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                                                   {"role": "user", "content": user_message(state, questions)}], **self.extra}
         req = urllib.request.Request(f"{BASE}/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"})
         with urllib.request.urlopen(req, timeout=600) as resp:
             out = json.loads(resp.read())
-        record(f"cascade:{self.model.split('/')[-1]}", self.model, out.get("usage"))
+        usd = record(f"cascade:{self.model.split('/')[-1]}", self.model, out.get("usage"))
+        with self.lock:
+            self.stats["spent_usd"] += usd
         parsed = extract_json((out["choices"][0].get("message") or {}).get("content") or "")
         raw = parsed.get("answers") if isinstance(parsed, dict) else None
         return {qid: to_answer(q, (raw or {}).get(qid)) for qid, q in questions.items()}
@@ -97,6 +108,8 @@ class Cascade:
                 for qid, a in self.escalate(state, unsure).items():
                     if a is not None:
                         final[qid] = a
+            except OverBudget:
+                raise
             except Exception:  # noqa: BLE001 - mu keeps the uncertain answer when the next tier fails
                 with self.lock:
                     self.stats["escalation_failed"] += 1
@@ -113,8 +126,9 @@ def main() -> None:
     ap.add_argument("--escalate", default="nvidia/Nemotron-3-Ultra-550b-a55b")
     ap.add_argument("--think", action="store_true")
     ap.add_argument("--port", type=int, default=8772)
+    ap.add_argument("--max-usd", type=float, default=5.0, help="stop escalating (HTTP 503) once this run spent this much")
     args = ap.parse_args()
-    cascade = Cascade(args.cache, args.escalate, args.think)
+    cascade = Cascade(args.cache, args.escalate, args.think, args.max_usd)
     print(f"{len(cascade.answers)} student answers loaded", flush=True)
 
     class Handler(BaseHTTPRequestHandler):
@@ -137,6 +151,8 @@ def main() -> None:
                 self.send(200, cascade.answer(json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))))
             except LookupError as e:
                 self.send(404, {"error": {"message": str(e)}})
+            except OverBudget as e:
+                self.send(503, {"error": {"message": str(e)}})
 
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
 
