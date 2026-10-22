@@ -19,7 +19,7 @@ Nemotron 3 Nano 4B + LoRA learns to match it on the first answer token          
                                                          │
                                                          ▼
 a System One server, the protocol mu's judges speak: all questions of a request         (serve/systemone_server.py)
-in one forward pass, on CUDA or Apple silicon
+in one forward pass, on CUDA (or Apple silicon, experimental)
 ```
 
 - **One token per answer.** Every label is a single token in the Nemotron tokenizer, so the student's probability for each answer is read directly off its first-token distribution. Nothing is generated or parsed, and the format cannot break.
@@ -43,9 +43,11 @@ Scores are the share of the cost of mu's no-judge fallbacks that the judge remov
 ## Use it with mu
 
 ```bash
-uv pip install -e '.[mlx]'          # Apple silicon; on a CUDA machine: '.[train]'
-python serve/systemone_server.py --backend mlx --model <student model folder> --port 8770
+uv pip install -e '.[train]'        # NVIDIA GPU; tested on an A100 40 GB
+python serve/systemone_server.py --model <student model folder> --port 8770
 ```
+
+On Apple silicon, install `'.[mlx]'` and add `--backend mlx`. This backend is experimental: the scores above come from the CUDA backend, and the MLX one is so far checked only on a random model with the student's shape and tokenizer (`serve/check_mlx_backend.py`: the same first-token distributions as a full forward pass), not yet with the trained weights.
 
 Then in `~/.mu/agent/mu.json`:
 
