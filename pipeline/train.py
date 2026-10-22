@@ -10,6 +10,8 @@ The log-probabilities are over the whole vocabulary, so the same loss also moves
 the student learns to answer in the format as well as what to answer.
 
 Examples run in left-padded micro-batches of similar length; at start-up a few are checked against unpadded runs.
+Every --save-every steps the adapter, optimizer and schedule go to <out>/checkpoint; --resume continues from there
+with the same example order.
 
   python train.py --train train.jsonl --val val.jsonl --out /content/run   (on a GPU)
 """
@@ -19,11 +21,13 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 from collections import defaultdict
 
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
+from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # peft cannot wrap the Mamba mixers' out_proj and conv1d; lm_head stays frozen.
@@ -139,6 +143,23 @@ def check_padding(model, examples, pad_id, device):
     return worst
 
 
+def save_checkpoint(model, optimizer, schedule, step, out):
+    """The state after `step` optimizer steps. Written beside the previous checkpoint and swapped in after, so a VM
+    lost mid-write still leaves a whole one."""
+    final, tmp, old = (os.path.join(out, name) for name in ("checkpoint", "checkpoint.tmp", "checkpoint.old"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    model.save_pretrained(os.path.join(tmp, "adapter"))
+    torch.save({"step": step, "optimizer": optimizer.state_dict(), "schedule": schedule.state_dict()},
+               os.path.join(tmp, "state.pt"))
+    with open(os.path.join(tmp, "step"), "w") as f:
+        f.write(str(step))
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.exists(final):
+        os.replace(final, old)
+    os.replace(tmp, final)
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default="nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16")
@@ -154,6 +175,8 @@ def main():
     parser.add_argument("--lora-r", type=int, default=32)
     parser.add_argument("--eval-every", type=int, default=150, help="optimizer steps")
     parser.add_argument("--eval-limit", type=int, default=1500)
+    parser.add_argument("--save-every", type=int, default=50, help="optimizer steps between checkpoints")
+    parser.add_argument("--resume", action="store_true", help="continue from <out>/checkpoint if there is one")
     parser.add_argument("--baseline-only", action="store_true", help="evaluate the untuned model and stop")
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
@@ -179,10 +202,13 @@ def main():
         print("padded batches disagree with single examples; training one example at a time", flush=True)
 
     log = open(os.path.join(args.out, "log.jsonl"), "a", encoding="utf-8")
-    baseline = evaluate(model, val, pad_id, device, micro, args.micro_tokens, args.eval_limit)
-    print("baseline", json.dumps(baseline["all"]), flush=True)
-    log.write(json.dumps({"step": 0, "eval": baseline, "padding_check": drift}) + "\n")
-    log.flush()
+    checkpoint = os.path.join(args.out, "checkpoint")
+    resuming = args.resume and os.path.exists(os.path.join(checkpoint, "state.pt"))
+    if not resuming:
+        baseline = evaluate(model, val, pad_id, device, micro, args.micro_tokens, args.eval_limit)
+        print("baseline", json.dumps(baseline["all"]), flush=True)
+        log.write(json.dumps({"step": 0, "eval": baseline, "padding_check": drift}) + "\n")
+        log.flush()
     if args.baseline_only:
         return
 
@@ -201,10 +227,21 @@ def main():
         lambda step: min(1.0, (step + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(1.0, step / total_steps))),
     )
 
+    start = 0
+    if resuming:
+        set_peft_model_state_dict(model, load_file(os.path.join(checkpoint, "adapter", "adapter_model.safetensors")))
+        state = torch.load(os.path.join(checkpoint, "state.pt"), map_location=device)
+        optimizer.load_state_dict(state["optimizer"])
+        schedule.load_state_dict(state["schedule"])
+        start = state["step"]
+        print(f"resumed after step {start}", flush=True)
+
+    # Its own generator, so the order depends on the seed alone and a resumed run sees the same examples.
+    rng = random.Random(args.seed)
     order = []
     while len(order) < total_steps * args.accum:
         epoch = list(range(len(train)))
-        random.shuffle(epoch)
+        rng.shuffle(epoch)
         order.extend(epoch)
     started = time.time()
     running = 0.0
@@ -218,7 +255,7 @@ def main():
             total += loss.item() / len(chunk)
         return total
 
-    for step in range(total_steps):
+    for step in range(start, total_steps):
         chunk = order[step * args.accum : (step + 1) * args.accum]
         try:
             running += accumulate(chunk, micro_batches(train, chunk, micro, args.micro_tokens))
@@ -233,10 +270,10 @@ def main():
         schedule.step()
         optimizer.zero_grad(set_to_none=True)
         if (step + 1) % 10 == 0:
-            elapsed = time.time() - started
+            per_step = (time.time() - started) / (step + 1 - start)
             print(
                 f"step {step + 1}/{total_steps} loss {running / 10:.4f} lr {schedule.get_last_lr()[0]:.2e} "
-                f"{elapsed / (step + 1):.1f}s/step eta {(total_steps - step - 1) * elapsed / (step + 1) / 60:.0f}m",
+                f"{per_step:.1f}s/step eta {(total_steps - step - 1) * per_step / 60:.0f}m",
                 flush=True,
             )
             log.write(json.dumps({"step": step + 1, "train_loss": running / 10}) + "\n")
@@ -247,6 +284,8 @@ def main():
             log.write(json.dumps({"step": step + 1, "eval": result}) + "\n")
             log.flush()
             model.save_pretrained(os.path.join(args.out, "adapter"))
+        if (step + 1) % args.save_every == 0 and step + 1 < total_steps:
+            save_checkpoint(model, optimizer, schedule, step + 1, args.out)
 
     final = evaluate(model, val, pad_id, device, micro, args.micro_tokens)
     print("final", json.dumps(final["all"]), flush=True)
