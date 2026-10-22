@@ -24,21 +24,21 @@ in one forward pass, on CUDA or Apple silicon
 
 - **One token per answer.** Every label is a single token in the Nemotron tokenizer, so the student's probability for each answer is read directly off its first-token distribution. Nothing is generated or parsed, and the format cannot break.
 - **Soft labels.** The student matches the teacher's whole distribution, not just its pick, so its probabilities stay usable for mu's three-zone policies (no ≤ 0.2, unsure, yes ≥ 0.8) and for the cascade.
-- **Thinking where it pays.** With thinking on, Ultra did much better on the 8 decision points where it was weakest: 15.3 → 23.0 on real requests, 55.9 → 88.3 on constructed ones. Those 8 are labelled with `reasoning_effort: "high"`; the rest are labelled with thinking off, at a third of the cost.
+- **Thinking where it pays.** Ultra's labels for the 8 decision points where it was weakest come with `reasoning_effort: "high"`; with thinking on those 8, its pooled dev score rose from 47.3 to 48.7 on real requests and from 47.7 to 56.0 on constructed ones. The rest are labelled with thinking off, at about half the cost per request.
 - **Held-out evaluation.** No request that appears in the evaluation sets, and no coding session they come from, is used in training.
 
 ## Results
 
-Scores are the share of the cost of mu's no-judge fallbacks that the judge removes, measured by what mu then *does* on each held-out request (0 = no better than no judge, 100 = every decision right); [[n]] dev requests.
+Scores are the share of the cost of mu's no-judge fallbacks that the judge removes, measured by what mu then *does* on each held-out request (0 = no better than no judge, 100 = every decision right); 1,353 dev requests (541 real, 700 constructed, 112 not shown here).
 
 | Judge | Runs | Real requests | Constructed | Latency |
 | --- | --- | --- | --- | --- |
-| Nemotron 3 Ultra, thinking off (the teacher) | Token Factory | 47.5 | 48.9 | 0.9 s p50 |
-| Nemotron 3 Nano 4B, untuned, same prompts | local | −3.7 | 13.8 | |
+| Nemotron 3 Ultra, thinking off (the teacher) | Token Factory | 47.3 | 47.7 | 0.9 s p50 |
+| Nemotron 3 Nano 4B, untuned, same prompts | local | −3.6 | 13.0 | |
 | **Nemotron 3 Nano 4B, distilled (this repo)** | local | [[ ]] | [[ ]] | [[ ]] |
 | Distilled Nano → Ultra cascade | local + Token Factory | [[ ]] | [[ ]] | [[ ]]% of questions sent to Ultra |
-| Nemotron 3 Super, thinking off | Token Factory | 1.1 | −11.4 | |
-| Nemotron 3.5 Lightning, first-token logprobs | Token Factory | 14.9 | −11.3 | |
+| Nemotron 3 Super, thinking off | Token Factory | 2.7 | −12.7 | |
+| Nemotron 3.5 Lightning, first-token logprobs | Token Factory | 15.4 | −12.5 | |
 
 ## Use it with mu
 
