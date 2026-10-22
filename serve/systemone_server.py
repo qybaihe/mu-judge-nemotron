@@ -81,11 +81,15 @@ class HFBackend:
 
 
 class MLXBackend:
+    """Apple silicon. The questions of one request share their prompt up to the question (system prompt and STATE):
+    that prefix runs once into a cache, and each question runs only its own tokens on a copy of it."""
+
     def __init__(self, model_path: str):
         import mlx.core as mx
         from mlx_lm import load
+        from mlx_lm.models.cache import make_prompt_cache
 
-        self.mx = mx
+        self.mx, self.make_prompt_cache = mx, make_prompt_cache
         self.model, self.tokenizer = load(model_path)
 
     def encode(self, msgs) -> list[int]:
@@ -95,10 +99,21 @@ class MLXBackend:
         return self.tokenizer.encode(label, add_special_tokens=False)[0]
 
     def first_token_probs(self, prompts: list[list[int]]) -> list:
+        import copy
+
         mx = self.mx
+        shared = len(prompts[0])
+        for p in prompts[1:]:
+            shared = min(shared, next((i for i, (a, b) in enumerate(zip(prompts[0], p)) if a != b), min(len(p), shared)))
+        shared = min(shared, min(len(p) for p in prompts) - 1)  # every question keeps at least one token of its own
+        cache = self.make_prompt_cache(self.model)
+        if shared > 0:
+            self.model(mx.array([prompts[0][:shared]]), cache=cache)
+            mx.eval([c.state for c in cache])
         out = []
         for p in prompts:
-            logits = self.model(mx.array([p]))[0, -1].astype(mx.float32)
+            own = copy.deepcopy(cache) if len(prompts) > 1 else cache
+            logits = self.model(mx.array([p[shared:]]), cache=own)[0, -1].astype(mx.float32)
             out.append(mx.softmax(logits, axis=-1))
         return out
 
