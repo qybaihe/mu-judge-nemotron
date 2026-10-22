@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Distil NVIDIA Nemotron 3 Ultra into a Nemotron 3 Nano 4B judge for the mu coding agent"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["httpx>=0.27", "pyarrow>=17"]
+# Labelling, dataset building and the Token Factory backend use only the standard library.
+dependencies = []
 
 [project.optional-dependencies]
 train = ["torch>=2.6", "transformers>=5.0", "peft>=0.17"]
+# Serving on Apple silicon.
+mlx = ["mlx-lm>=0.32"]
