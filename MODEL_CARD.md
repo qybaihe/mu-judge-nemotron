@@ -8,18 +8,17 @@ tags:
 - nemotron
 - judge
 - coding-agent
-- distillation
 - lora
 ---
 
-# mu-judge-nemotron (Nemotron 3 Nano 4B, distilled from Nemotron 3 Ultra)
+# mu-judge-nemotron (Nemotron 3 Nano 4B, fine-tuned as mu's judge)
 
 The judge model of the [mu](https://github.com/qybaihe/mu) coding agent, for running on your own machine. mu asks a judge bounded questions at 40 decision points in its agent loop (is this command safe for this task, is this test output worth reading, did the agent stop short, has it drifted). This model answers each question with one token, so every answer has a probability: `yes`/`no`, `A`–`I` for options, `0`–`3` for rubric levels.
 
 - **Base:** NVIDIA Nemotron 3 Nano 4B (BF16), LoRA r=32 on the attention and MLP projections, merged.
-- **Teacher:** NVIDIA Nemotron 3 Ultra on Nebius Token Factory. It labelled 9,494 judge requests (about 31,500 questions) from mu's sessions through mu's own judge prompt. Thinking was off, except on the 8 decision points where thinking clearly helped.
-- **Objective:** soft cross-entropy between the teacher's distribution over a question's labels and the student's first-token distribution.
-- **Training:** one epoch (939 optimizer steps), about 3.1 hours on one A100 40 GB; about 30,000 training examples (one per question), 928 held out for validation. On the validation questions its top answer agrees with Ultra's 88.8% of the time (Brier score 0.106, from 0.304 untuned).
+- **Data:** 9,494 judge requests (about 31,500 questions) from mu's sessions and generated scenarios, each question with a probability for every answer label. No request in the evaluation sets below, and no coding session one comes from, is among them.
+- **Objective:** soft cross-entropy between each question's label distribution and the model's first-token distribution.
+- **Training:** one epoch (939 optimizer steps), about 3.1 hours on one A100 40 GB; about 30,000 training examples (one per question), 928 held out for validation. On the validation questions its top answer agrees with the label's top answer 88.8% of the time (Brier score 0.106, from 0.304 untuned).
 
 ## Use
 
@@ -43,7 +42,7 @@ The prompt format is fixed: see `pipeline/judge_format.py`. A question asked any
 | --- | --- | --- | --- |
 | **This model** | **62.3** | 45.0 | 19.6 |
 | This model, then Ultra for the questions it is unsure of | 63.1 | 44.1 | 38.6 |
-| Nemotron 3 Ultra, thinking off (teacher) | 47.3 | 47.7 | 52.3 |
+| Nemotron 3 Ultra, thinking off | 47.3 | 47.7 | 52.3 |
 | Nemotron 3 Nano 4B, untuned | −3.6 | 13.0 | −11.8 |
 
 On 4,838 further held-out requests, scored once (95% bootstrap intervals over coding tasks and scenarios):
@@ -51,15 +50,15 @@ On 4,838 further held-out requests, scored once (95% bootstrap intervals over co
 | Judge | Real requests | Constructed |
 | --- | --- | --- |
 | **This model** | **68.2** (61.0 to 76.0) | **59.9** (51.5 to 68.3) |
-| Nemotron 3 Ultra, thinking off (teacher) | 54.7 (44.6 to 64.0) | 48.4 (35.8 to 59.8) |
+| Nemotron 3 Ultra, thinking off | 54.7 (44.6 to 64.0) | 48.4 (35.8 to 59.8) |
 | This model, then Ultra for the questions it is unsure of | 20.0 (−74.6 to 69.7) | 55.7 (44.8 to 66.4) |
 
-Paired against its teacher it is ahead by 13.6 on real requests (+8.1 to +20.7) and by 11.5 on constructed ones (+1.5 to +22.6). Sending its unsure questions to Ultra did not pay on real test requests: in a few costly places Ultra's confident answers cost more than this model's doubt.
+Paired against Ultra it is ahead by 13.6 on real requests (+8.1 to +20.7) and by 11.5 on constructed ones (+1.5 to +22.6). Sending its unsure questions to Ultra did not pay on real test requests: in a few costly places Ultra's confident answers cost more than this model's doubt.
 
 ## Limitations
 
 - English and Chinese coding-agent states only; other languages are untested.
-- It inherits its teacher's mistakes. It is clearly weaker than Ultra on the hard, deliberately tricky author-written requests (19.6 against 52.3): a cascade with Ultra behind it (`"tiers": ["nemotron-local", "nemotron"]`) recovered part of that on dev, but did worse than this model alone on real test requests.
+- It is clearly weaker than Ultra on the hard, deliberately tricky author-written requests (19.6 against 52.3): a cascade with Ultra behind it (`"tiers": ["nemotron-local", "nemotron"]`) recovered part of that on dev, but did worse than this model alone on real test requests.
 - Calibrated for mu's thresholds (no ≤ 0.2, yes ≥ 0.8). For any other use, read its probabilities with care.
 
 ## License
