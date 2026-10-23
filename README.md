@@ -2,7 +2,7 @@
 
 A local judge for the [mu](https://github.com/qybaihe/mu) coding agent: **NVIDIA Nemotron 3 Ultra** on **Nebius Token Factory** teaches **NVIDIA Nemotron 3 Nano 4B**, which then judges on your machine.
 
-mu asks a judge model bounded questions at 40 decision points in its agent loop: is this command safe to run for this task, is this chunk of test output worth reading, did the agent stop before doing what it said, has it drifted from the goal. A judge must be fast, cheap and calibrated, not eloquent. Nemotron 3 Ultra makes the best judge of the Nemotron models on Token Factory, but every decision then costs a network round trip and tokens. This repository distils Ultra's judgment into Nemotron 3 Nano 4B, which reads each answer off a single token. In mu, `"tiers": ["nemotron-local", "nemotron"]` lets the small judge settle what it is sure of and sends only the rest to Ultra.
+mu asks a judge model bounded questions at 40 decision points in its agent loop: is this command safe to run for this task, is this chunk of test output worth reading, did the agent stop before doing what it said, has it drifted from the goal. A judge must be fast, cheap and calibrated, not eloquent. Nemotron 3 Ultra makes the best judge of the Nemotron models on Token Factory, but every decision then costs a network round trip and tokens. This repository distils Ultra's judgment into Nemotron 3 Nano 4B, which reads each answer off a single token. On 4,838 held-out test requests, scored once, the distilled judge scored above its teacher: 68.2 against 54.7 on real requests from coding sessions, 59.9 against 48.4 on constructed scenarios. In mu it is the built-in judge `nemotron-local`.
 
 ## How it works
 
@@ -29,16 +29,34 @@ in one forward pass, on CUDA (or Apple silicon, experimental)
 
 ## Results
 
-Scores are the share of the cost of mu's no-judge fallbacks that the judge removes, measured by what mu then *does* on each held-out request (0 = no better than no judge, 100 = every decision right); 1,353 dev requests (541 real, 700 constructed, 112 not shown here).
+Scores are the share of the cost of mu's no-judge fallbacks that the judge removes, measured by what mu then *does* on each held-out request (0 = no better than no judge, 100 = every decision right). Dev: 1,353 requests (541 real, from coding sessions; 700 constructed scenarios; 112 written by mu's author).
 
-| Judge | Runs | Real requests | Constructed | Latency |
-| --- | --- | --- | --- | --- |
-| Nemotron 3 Ultra, thinking off (the teacher) | Token Factory | 47.3 | 47.7 | 0.9 s p50 |
-| Nemotron 3 Nano 4B, untuned, same prompts | local | −3.6 | 13.0 | |
-| **Nemotron 3 Nano 4B, distilled (this repo)** | local | [[ ]] | [[ ]] | [[ ]] |
-| Distilled Nano → Ultra cascade | local + Token Factory | [[ ]] | [[ ]] | [[ ]]% of questions sent to Ultra |
-| Nemotron 3 Super, thinking off | Token Factory | 2.7 | −12.7 | |
-| Nemotron 3.5 Lightning, first-token logprobs | Token Factory | 15.4 | −12.5 | |
+| Judge | Runs | Real requests | Constructed | Author-written | Latency |
+| --- | --- | --- | --- | --- | --- |
+| **Nemotron 3 Nano 4B, distilled (this repo)** | local | **62.3** | 45.0 | 19.6 | 0.07–0.1 s per verdict (A100) |
+| Distilled Nano → Ultra cascade | local + Token Factory | **63.1** | 44.1 | 38.6 | about a fifth of questions go to Ultra |
+| Nemotron 3 Ultra, thinking off (the teacher) | Token Factory | 47.3 | 47.7 | 52.3 | 0.9 s p50 |
+| Nemotron 3 Nano 4B, untuned, same prompts | local | −3.6 | 13.0 | −11.8 | |
+| Nemotron 3 Super, thinking off | Token Factory | 2.7 | −12.7 | 76.6 | |
+| Nemotron 3.5 Lightning, first-token logprobs | Token Factory | 15.4 | −12.5 | | |
+
+Test: 4,838 further held-out requests (3,244 real, 1,594 constructed), scored once, after everything above was fixed. 95% bootstrap intervals over coding tasks (real) and scenarios (constructed):
+
+| Judge | Real requests | Constructed |
+| --- | --- | --- |
+| **Nemotron 3 Nano 4B, distilled (this repo)** | **68.2** (61.0 to 76.0) | **59.9** (51.5 to 68.3) |
+| Nemotron 3 Ultra, thinking on 4 decision points | 57.9 (48.7 to 66.6) | 55.9 (44.6 to 66.6) |
+| Nemotron 3 Ultra, thinking off (the teacher) | 54.7 (44.6 to 64.0) | 48.4 (35.8 to 59.8) |
+| Distilled Nano → Ultra cascade | 20.0 (−74.6 to 69.7) | 55.7 (44.8 to 66.4) |
+
+Paired against its teacher, the student is ahead by 13.6 on real requests (+8.1 to +20.7) and by 11.5 on constructed ones (+1.5 to +22.6). Against Ultra with thinking on four decision points it is ahead by 10.3 on real requests (+5.0 to +17.1); on constructed ones the interval includes zero (+4.1, −5.0 to +14.1).
+
+What the numbers say:
+
+- **The student scores above its teacher.** On dev that holds for real requests (62.3 against 47.3) but not for constructed ones (45.0 against 47.7); on the larger test split it holds for both. On real requests it is also right more often (89.2% of checks on test against Ultra's 87.2%). Our reading, not a measured cause: it learned Ultra's distribution over each question's labels, not only Ultra's pick, so averaging over 30,600 of Ultra's answers smooths away Ultra's one-off mistakes, and mu's cost-weighted policies reward probabilities less extreme than Ultra's usual 0.9 and 0.95.
+- **On the 112 author-written requests it is clearly weaker** (19.6 against 52.3 on dev). These are hard, deliberately tricky cases.
+- **The cascade did not pay on test.** Sending the questions the student is unsure of to Ultra helped on the author-written dev requests (38.6) and changed little on the rest of dev, but on real test requests it scored far lower than the student alone (20.0, with a very wide interval). In a few costly places, such as letting a tool's output into the context (2 mistakes in 520) or keeping a memory, Ultra's confident answers cost more than the student's doubt, which falls back to what mu does without a judge. The cascade's rule is mu's own (unsure: a yes/no probability between 0.2 and 0.8, or a choice below 0.6) and was not tuned on test. So we recommend the student on its own.
+- The comparison is fair to the teacher: no request in these sets, and no coding session one comes from, was used in training (checked by task: none of the 29 real dev tasks or 86 real test tasks appears in the training data).
 
 ## Use it with mu
 
@@ -52,10 +70,12 @@ On Apple silicon, install `'.[mlx]'` and add `--backend mlx`. This backend is ex
 Then in `~/.mu/agent/mu.json`:
 
 ```json
-{ "tiers": ["nemotron-local", "nemotron"] }
+{ "tiers": ["nemotron-local"] }
 ```
 
-`nemotron-local` is mu's built-in name for this server at `http://127.0.0.1:8770`; `nemotron` is Nemotron 3 Ultra on Token Factory (`NEBIUS_API_KEY`), asked only about what the local judge is unsure of. `mu ledger` shows which judge answered each question.
+`nemotron-local` is mu's built-in name for this server at `http://127.0.0.1:8770`. Where it is unsure, mu does what it does without a judge. `mu ledger` lists every verdict with its latency.
+
+To send its unsure questions to Nemotron 3 Ultra on Token Factory (`NEBIUS_API_KEY`), use `"tiers": ["nemotron-local", "nemotron"]`: it helped on the hardest dev requests but did worse on real test requests (see Results).
 
 ## Reproduce
 
@@ -85,6 +105,8 @@ python pipeline/build_dataset.py --requests data/requests/train.jsonl \
 
 # 4. LoRA on one GPU (A100 40 GB)
 python pipeline/train.py --train data/dataset/train.jsonl --val data/dataset/val.jsonl --out runs/student
+#    (train.py merges the adapter into runs/student/merged; from the adapter alone, on any machine:)
+python pipeline/merge.py --adapter runs/student/adapter --out runs/student/merged
 
 # 5. Serve, and measure a cascade without serving the student again
 python serve/systemone_server.py --model runs/student/merged --port 8770
@@ -95,7 +117,7 @@ python serve/cascade_eval_server.py --cache <judge-request cache of the student>
 
 ## What it cost
 
-[[$X]] of Token Factory credit for everything above, including every evaluation of every Nemotron model: [[breakdown]]. Training: [[N]] hours on one Colab A100.
+$27.08 of Token Factory credit for everything above: $15.78 for the teacher's labels, $9.10 for measuring every Nemotron as mu's judge, $1.60 for the cascade's calls to Ultra, and $0.60 for end-to-end runs of mu and the demos. Training: about 3.1 hours on one Colab A100 (in two sessions: Colab reclaimed the first VM, and training resumed from a saved checkpoint).
 
 ## Data and licenses
 
