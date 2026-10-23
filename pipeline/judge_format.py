@@ -1,4 +1,4 @@
-"""How the student judge sees a question and how its answer is read: one prompt per question, the same STATE first
+"""How the 4B judge sees a question and how its answer is read: one prompt per question, the same STATE first
 so that the questions of one request share a prefix, and the answer read off the first token, which is always one
 of the question's labels (yes/no, A-I, 0-3). Training, evaluation and serving all go through this file.
 """
@@ -55,7 +55,7 @@ def messages(state, question: dict) -> list[dict]:
 
 
 def target(question: dict, answer: dict, floor: float = 0.01) -> list[float]:
-    """The teacher's answer (mu's Answer object) as a distribution over labels(question), never exactly 0 or 1."""
+    """A labelled answer (mu's Answer object) as a distribution over labels(question), never exactly 0 or 1."""
     kind = question["type"]
     if kind == "boolean":
         p = answer["probability"]
@@ -77,7 +77,7 @@ def target(question: dict, answer: dict, floor: float = 0.01) -> list[float]:
 
 
 def to_system_one(question: dict, probs: list[float]) -> dict:
-    """The student's label probabilities (renormalised over the labels) as a System One answer."""
+    """The model's label probabilities (renormalised over the labels) as a System One answer."""
     total = sum(probs) or 1.0
     probs = [p / total for p in probs]
     kind = question["type"]

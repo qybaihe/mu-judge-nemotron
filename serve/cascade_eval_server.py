@@ -1,13 +1,13 @@
-"""Measure a cascade the way mu runs one ("tiers": ["nemotron-local", "nemotron"]) without serving the student again:
-the student's answers are replayed from a judge-request cache, and the questions mu would call uncertain go on to a
+"""Measure a cascade the way mu runs one ("tiers": ["nemotron-local", "nemotron"]) without serving the 4B judge again:
+its answers are replayed from a judge-request cache, and the questions mu would call uncertain go on to a
 Nemotron model on Token Factory through mu's LLM judge prompt. Speaks System One, so any harness that talks to mu's
 judges can score it. For evaluation only; in use, mu runs the cascade itself.
 
-    python serve/cascade_eval_server.py --cache runs/_cache-student --escalate nvidia/Nemotron-3-Ultra-550b-a55b \
+    python serve/cascade_eval_server.py --cache runs/_cache-4b --escalate nvidia/Nemotron-3-Ultra-550b-a55b \
         --port 8772 [--think]
 
 --cache holds <provider>.requests.jsonl ({"key", "state", "questions"}) and <provider>.jsonl ({"key", "response"}),
-the student's answers as mu's Answer objects. GET /stats reports how many questions were escalated.
+the 4B judge's answers as mu's Answer objects. GET /stats reports how many questions were escalated.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class Cascade:
                       "spent_usd": 0.0}
 
     def escalate(self, state, questions: dict) -> dict:
-        with self.lock:  # past the cap, refuse loudly rather than keep the student's unsure answers in silence
+        with self.lock:  # past the cap, refuse loudly rather than keep the 4B judge's unsure answers in silence
             if self.stats["spent_usd"] >= self.max_usd or total() >= BUDGET_USD:
                 raise OverBudget(f"cascade spend cap reached (${self.stats['spent_usd']:.2f} of ${self.max_usd:.2f})")
         body = {"model": self.model, "messages": [{"role": "system", "content": SYSTEM_PROMPT},
@@ -100,7 +100,7 @@ class Cascade:
         if local is None:
             with self.lock:
                 self.stats["missing"] += 1
-            raise LookupError("no student answer recorded for this request")
+            raise LookupError("no 4B judge answer recorded for this request")
         unsure = {qid: questions[qid] for qid, a in local.items() if qid in questions and uncertain(a)}
         final = dict(local)
         if unsure:
@@ -129,7 +129,7 @@ def main() -> None:
     ap.add_argument("--max-usd", type=float, default=5.0, help="stop escalating (HTTP 503) once this run spent this much")
     args = ap.parse_args()
     cascade = Cascade(args.cache, args.escalate, args.think, args.max_usd)
-    print(f"{len(cascade.answers)} student answers loaded", flush=True)
+    print(f"{len(cascade.answers)} 4B judge answers loaded", flush=True)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):

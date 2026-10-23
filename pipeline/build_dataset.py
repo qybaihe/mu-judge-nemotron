@@ -1,8 +1,8 @@
-"""Turn teacher-labelled judge requests into student examples: one example per question, with the prompt messages,
-the answer labels and the teacher's distribution over them. Requests are split into train and val (all questions of
+"""Turn labelled judge requests into training examples: one example per question, with the prompt messages,
+the answer labels and the label distribution over them. Requests are split into train and val (all questions of
 one request on the same side).
 
-    python pipeline/build_dataset.py --requests data/requests/train.jsonl --labels data/labels/ultra-train.jsonl \
+    python pipeline/build_dataset.py --requests data/requests/train.jsonl --labels data/labels/labels.jsonl \
         --out data/dataset [--val 0.03]
 """
 

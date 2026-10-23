@@ -1,9 +1,9 @@
-"""Label System One judge requests with a Nemotron teacher on Token Factory, through the same prompt mu's LLM judge
+"""Label System One judge requests with a Nemotron model on Token Factory, through the same prompt mu's LLM judge
 sends (packages/kyrn-judge/src/providers/llm.ts), with thinking off. Resumable: requests already in --out are skipped.
 Every call is booked in the spend ledger, and the run stops before the ledger passes --max-usd.
 
-    python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/ultra.jsonl \
-        --model nvidia/Nemotron-3-Ultra-550b-a55b --max-usd 12 [--limit N] [--concurrency 12]
+    python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/labels.jsonl \
+        --model <Token Factory model> --max-usd 12 [--limit N] [--concurrency 12]
 
 Input rows: {"key", "decision", "state", "questions"} (mu's Question objects). Output rows add "answers" (mu's Answer
 objects, as llm.ts turns the reply into them), "raw" (the reply), "usage" and "ms"; a reply mu would reject gets
@@ -143,12 +143,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--requests", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--model", default="nvidia/Nemotron-3-Ultra-550b-a55b")
+    ap.add_argument("--model", required=True, help="the Token Factory model that answers")
     ap.add_argument("--max-usd", type=float, required=True, help="stop before the ledger total passes this")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--concurrency", type=int, default=12)
     ap.add_argument("--tag", default=None)
-    ap.add_argument("--think", action="store_true", help="let the teacher think first (reasoning_effort high)")
+    ap.add_argument("--think", action="store_true", help="let the model think first (reasoning_effort high)")
     ap.add_argument("--decisions", help="comma-separated decision points to label; default all")
     args = ap.parse_args()
 

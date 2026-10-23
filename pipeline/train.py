@@ -1,13 +1,13 @@
-"""Distil the teacher's label distributions into NVIDIA Nemotron 3 Nano 4B with LoRA.
+"""Fine-tune NVIDIA Nemotron 3 Nano 4B with LoRA on the label distributions of judge questions.
 
-The student sees one judge question at a time (judge_format.messages), rendered with the model's chat template and
+The model sees one judge question at a time (judge_format.messages), rendered with the model's chat template and
 thinking off (the prompt ends in `<think></think>`), and is trained so that its first token's distribution over the
-question's label tokens matches the teacher's:
+question's label tokens matches the label distribution q:
 
-  loss = -sum_l teacher(l) * log p_student(label token l | prompt)
+  loss = -sum_l q(l) * log p(label token l | prompt)
 
 The log-probabilities are over the whole vocabulary, so the same loss also moves probability off non-label tokens:
-the student learns to answer in the format as well as what to answer.
+the model learns to answer in the format as well as what to answer.
 
 Examples run in left-padded micro-batches of similar length; at start-up a few are checked against unpadded runs.
 Every --save-every steps the adapter, optimizer and schedule go to <out>/checkpoint; --resume continues from there

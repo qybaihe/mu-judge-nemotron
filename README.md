@@ -96,8 +96,10 @@ python pipeline/build_requests.py --rows 'rows/*.jsonl' --exclude-requests eval-
     --exclude-tasks eval-tasks.txt --keep-source capture --total 9500 --out data/requests/train.jsonl
 
 # 2. Labels: a probability for each answer label; a second pass for the decision points listed
-python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/labels.jsonl --max-usd 10
-python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/labels-2.jsonl --think \
+python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/labels.jsonl \
+    --model <Token Factory model> --max-usd 10
+python pipeline/label_tf.py --requests data/requests/train.jsonl --out data/labels/labels-2.jsonl \
+    --model <Token Factory model> --think \
     --decisions memory.capture,tool.constraint,board.read,input.preflight,skills.disclosure,capability.disclosure,turn.rewind,tool.approval \
     --max-usd 18
 

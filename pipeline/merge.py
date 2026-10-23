@@ -1,6 +1,6 @@
 """Merge a trained LoRA adapter into Nemotron 3 Nano 4B, giving the folder serve/systemone_server.py loads.
 
-    python pipeline/merge.py --adapter runs/student/adapter --out runs/student/merged
+    python pipeline/merge.py --adapter runs/judge/adapter --out runs/judge/merged
 
 train.py already writes <out>/merged; this rebuilds it from the adapter alone (about 140 MB instead of 8 GB), on any
 machine with the base model, a GPU or not.

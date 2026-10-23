@@ -1,4 +1,4 @@
-"""Serve a student judge over System One, the protocol mu's judge providers speak: POST /v1/systemone with
+"""Serve a fine-tuned judge over System One, the protocol mu's judge providers speak: POST /v1/systemone with
 {"model", "state", "questions"}; every question is answered from the probabilities of its label tokens on the first
 answer token (judge_format), all questions of a request in one forward pass.
 
@@ -120,7 +120,7 @@ class MLXBackend:
 
 class TokenFactoryBackend:
     """The same per-question prompts sent to a model on Nebius Token Factory, read off the first token's top-20
-    logprobs (a label outside them counts as 0). For measuring Nemotron models zero-shot in the student's format;
+    logprobs (a label outside them counts as 0). For measuring Nemotron models zero-shot in the 4B judge's format;
     every call is booked in the spend ledger."""
 
     def __init__(self, model: str):
