@@ -4,6 +4,8 @@ A local judge for the [mu](https://github.com/qybaihe/mu) coding agent: **NVIDIA
 
 mu asks a judge model bounded questions at 40 decision points in its agent loop: is this command safe to run for this task, is this chunk of test output worth reading, did the agent stop before doing what it said, has it drifted from the goal. A judge must be fast, cheap and calibrated, not eloquent. Nemotron 3 Ultra makes the best judge of the Nemotron models on Token Factory, but every decision then costs a network round trip and tokens. This repository distils Ultra's judgment into Nemotron 3 Nano 4B, which reads each answer off a single token. On 4,838 held-out test requests, scored once, the distilled judge scored above its teacher: 68.2 against 54.7 on real requests from coding sessions, 59.9 against 48.4 on constructed scenarios. In mu it is the built-in judge `nemotron-local`.
 
+**Weights:** [qybaihe/mu-judge-nemotron-nano-4b](https://huggingface.co/qybaihe/mu-judge-nemotron-nano-4b) on Hugging Face (bf16, 8 GB). To use it, see [Use it with mu](#use-it-with-mu).
+
 ## How it works
 
 ```
@@ -119,7 +121,7 @@ python serve/cascade_eval_server.py --cache <judge-request cache of the student>
 
 ## What it cost
 
-$27.08 of Token Factory credit for everything above: $15.78 for the teacher's labels, $9.10 for measuring every Nemotron as mu's judge, $1.60 for the cascade's calls to Ultra, and $0.60 for end-to-end runs of mu and the demos. Training: about 3.1 hours on one Colab A100 (in two sessions: Colab reclaimed the first VM, and training resumed from a saved checkpoint).
+$27.10 of Token Factory credit for everything above: $15.78 for the teacher's labels, $9.10 for measuring every Nemotron as mu's judge, $1.60 for the cascade's calls to Ultra, and $0.61 for end-to-end runs of mu and the demos. Training: about 3.1 hours on one Colab A100 (in two sessions: Colab reclaimed the first VM, and training resumed from a saved checkpoint).
 
 ## Data and licenses
 
