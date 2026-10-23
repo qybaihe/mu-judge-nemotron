@@ -62,8 +62,10 @@ What the numbers say:
 
 ```bash
 uv pip install -e '.[train]'        # NVIDIA GPU; tested on an A100 40 GB
-python serve/systemone_server.py --model <student model folder> --port 8770
+python serve/systemone_server.py --model qybaihe/mu-judge-nemotron-nano-4b --port 8770
 ```
+
+The merged weights are on Hugging Face: [qybaihe/mu-judge-nemotron-nano-4b](https://huggingface.co/qybaihe/mu-judge-nemotron-nano-4b) (about 8 GB, downloaded on first start). `--model` also takes a local folder, such as the `runs/student/merged` that train.py writes.
 
 On Apple silicon, install `'.[mlx]'` and add `--backend mlx`. This backend is experimental: the scores above come from the CUDA backend, and the MLX one is so far checked only on a random model with the student's shape and tokenizer (`serve/check_mlx_backend.py`: the same first-token distributions as a full forward pass), not yet with the trained weights.
 
