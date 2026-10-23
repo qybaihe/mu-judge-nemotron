@@ -33,7 +33,7 @@ Scores are the share of the cost of mu's no-judge fallbacks that the judge remov
 
 | Judge | Runs | Real requests | Constructed | Author-written | Latency |
 | --- | --- | --- | --- | --- | --- |
-| **Nemotron 3 Nano 4B, distilled (this repo)** | local | **62.3** | 45.0 | 19.6 | 0.07–0.1 s per verdict (A100) |
+| **Nemotron 3 Nano 4B, distilled (this repo)** | local | **62.3** | 45.0 | 19.6 | 0.07–0.1 s to approve a command (A100) |
 | Distilled Nano → Ultra cascade | local + Token Factory | **63.1** | 44.1 | 38.6 | about a fifth of questions go to Ultra |
 | Nemotron 3 Ultra, thinking off (the teacher) | Token Factory | 47.3 | 47.7 | 52.3 | 0.9 s p50 |
 | Nemotron 3 Nano 4B, untuned, same prompts | local | −3.6 | 13.0 | −11.8 | |
