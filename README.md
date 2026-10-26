@@ -121,7 +121,7 @@ python serve/cascade_eval_server.py --cache <judge-request cache of the 4B judge
 
 ## What it cost
 
-$27.33 of Token Factory credit for everything above: $15.78 for the training labels, $9.10 for measuring every Nemotron as mu's judge, $1.60 for the cascade's calls to Ultra, and $0.85 for end-to-end runs of mu and the demos (the desktop app run included). Training: about 3.1 hours on one Colab A100 (in two sessions: Colab reclaimed the first VM, and training resumed from a saved checkpoint).
+$27.92 of Token Factory credit for everything above: $15.78 for the training labels, $9.10 for measuring every Nemotron as mu's judge, $1.60 for the cascade's calls to Ultra, and $1.44 for end-to-end runs of mu, the demos (the desktop app run included) and a comparison of mu with and without the judge on 8 small tasks. Training: about 3.1 hours on one Colab A100 (in two sessions: Colab reclaimed the first VM, and training resumed from a saved checkpoint).
 
 ## Data and licenses
 
