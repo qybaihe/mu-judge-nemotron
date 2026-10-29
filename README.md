@@ -20,7 +20,7 @@ Nemotron 3 Nano 4B + LoRA learns to match it on the first answer token          
                                                          │
                                                          ▼
 a System One server, the protocol mu's judges speak: all questions of a request         (serve/systemone_server.py)
-in one forward pass, on CUDA (or Apple silicon, experimental)
+in one forward pass, on CUDA or, in MLX 8-bit, on a Mac
 ```
 
 - **One token per answer.** Every label is a single token in the Nemotron tokenizer, so the judge's probability for each answer is read directly off its first-token distribution. Nothing is generated or parsed, and the format cannot break.
@@ -67,7 +67,15 @@ python serve/systemone_server.py --model qybaihe/mu-judge-nemotron-nano-4b --por
 
 The merged weights are on Hugging Face: [qybaihe/mu-judge-nemotron-nano-4b](https://huggingface.co/qybaihe/mu-judge-nemotron-nano-4b) (about 8 GB, downloaded on first start). `--model` also takes a local folder, such as the `runs/judge/merged` that train.py writes (step 4 below).
 
-On Apple silicon, install `'.[mlx]'` and add `--backend mlx`. This backend is experimental: the scores above come from the CUDA backend, and the MLX one is so far checked only on a random model with this model's shape and tokenizer (`serve/check_mlx_backend.py`: the same first-token distributions as a full forward pass), not yet with the trained weights.
+On a Mac with Apple silicon, convert the weights to MLX 8-bit (about 4 GB; at full precision, 8 GB, a 16 GB Mac went into swap) and serve them with `--backend mlx`:
+
+```bash
+uv pip install -e '.[mlx]'
+python -m mlx_lm convert --hf-path qybaihe/mu-judge-nemotron-nano-4b -q --q-bits 8 --mlx-path mu-judge-nemotron-mlx-8bit
+python serve/systemone_server.py --backend mlx --model mu-judge-nemotron-mlx-8bit --port 8770
+```
+
+Checked on a 16 GB Mac (M6) against the CUDA judge's answers to 400 random dev requests (`serve/compare_backends.py`): the same answer on 98.7% of 1,420 questions (yes/no questions 99.6%, choices 96.4%, scores 96.3%), the probabilities 0.012 apart on average, and 0.41 s per request at the median (1.0 s at p90). The scores above come from the CUDA backend.
 
 Then in `~/.mu/agent/mu.json`:
 
