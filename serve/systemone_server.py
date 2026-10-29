@@ -114,7 +114,14 @@ class MLXBackend:
         for p in prompts:
             own = copy.deepcopy(cache) if len(prompts) > 1 else cache
             logits = self.model(mx.array([p[shared:]]), cache=own)[0, -1].astype(mx.float32)
-            out.append(mx.softmax(logits, axis=-1))
+            probs = mx.softmax(logits, axis=-1)
+            mx.eval(probs)
+            out.append(probs)
+            del own
+        # MLX keeps the buffers of every copied cache for reuse; on a 16 GB Mac they pushed the model into swap
+        # within a few dozen requests. Hand them back after each request.
+        del cache
+        mx.clear_cache()
         return out
 
 
