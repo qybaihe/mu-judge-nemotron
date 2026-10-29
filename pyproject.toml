@@ -11,3 +11,7 @@ dependencies = []
 train = ["torch>=2.6", "transformers>=5.0", "peft>=0.17"]
 # Serving on Apple silicon.
 mlx = ["mlx-lm>=0.32"]
+
+# The repository is scripts (pipeline/, serve/), not a package: install only the dependencies.
+[tool.setuptools]
+py-modules = []
